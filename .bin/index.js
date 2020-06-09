@@ -27,7 +27,7 @@ const LineByLineReader = require('line-by-line')
 
 function timeZonedDate(d) {
 	const dt = d || new Date()
-	dt.setHours(dt.getHours() + (cli.argv['timezone-offset'] || 2))
+	dt.setHours(dt.getHours() + (cli.argv['timezone-offset'] || 0))
 	return dt
 }
 
@@ -43,11 +43,11 @@ function parseFile(timeRangeStart, filename) {
 			const parts = line.match(new RegExp(cli.argv['regex-log-datetime'] || '(\\d{1,4})-(\\d{1,2})-(\\d{1,2}) (\\d{1,2}):(\\d{1,2})'))
 			if (parts) {
 				const logDateTime = timeZonedDate(new Date(parts[0]))
-				const ignore = logDateTime >= timeRangeStart
+				const ignore = logDateTime < timeRangeStart
 				if (!ignore) {
 					lines.push({ logDateTime, logLine: line })
 				}
-				verboseLog({ file: filename, time: logDateTime, ignore, line })
+				verboseLog({ file: filename, time: logDateTime.toUTCString(), ignore, line })
 			}
 		})
 
@@ -68,13 +68,13 @@ cli.runcom(async function (rc) {
 	this.argv.notNull('pattern')
 
 	const datetimeOffset = this.argv['datetime-offset'] || 300000
-	const timeRangeStart = timeZonedDate()
+	const timeRangeStart = new Date()
 	timeRangeStart.setMilliseconds(timeRangeStart.getMilliseconds() - datetimeOffset)
 	if (this.argv.verbose === true) {
 		// eslint-disable-next-line no-console
 		console.log(this.argv)
 		// eslint-disable-next-line no-console
-		console.log(`verify logs since "${timeRangeStart.toISOString()}" timezone-offset: ${cli.argv['timezone-offset'] || 2} hours`)
+		console.log(`verify logs since "${timeRangeStart.toUTCString()}" timezone-offset: ${cli.argv['timezone-offset'] || 0} hours`)
 	}
 	const files = await glob(this.argv.pattern, { dot: true })
 	let logs = []
@@ -84,7 +84,7 @@ cli.runcom(async function (rc) {
 		const fileDatetime = (parts ? timeZonedDate(new Date(parts[0])) : timeRangeStart)
 
 		const ignore = fileDatetime < timeRangeStart
-		verboseLog({ file: file, time: fileDatetime.toISOString(), ignore })
+		verboseLog({ file: file, time: fileDatetime.toUTCString(), ignore })
 		if (!ignore) {
 			/* console.dir(file)
 			console.dir(fileDatetime) */
@@ -106,11 +106,16 @@ cli.runcom(async function (rc) {
 		// eslint-disable-next-line no-process-exit
 		process.exit(0)
 	} else {
-		const lg = logs[0]
-		// eslint-disable-next-line no-console
-		console.log(`${this.argv.text === undefined ? '' : this.argv.text.replace(/\\n/, '\n')}${lg.logLine}`)
-		// eslint-disable-next-line no-process-exit
-		// console.dir(lg)
+		const lastLogDateTime = logs[0].logDateTime
+		for (let l = 0; l < logs.length; l++) {
+			const lg = logs[l]
+			if (lastLogDateTime === lg.logDateTime) {
+				// eslint-disable-next-line no-console
+				console.log(`${this.argv.text === undefined ? '' : this.argv.text.replace(/\\n/, '\n')}${lg.logLine}`)
+			} else {
+				break
+			}
+		}
 		// eslint-disable-next-line no-process-exit
 		process.exit(this.argv.exitcode || 2)
 	}
