@@ -31,7 +31,7 @@ function timeZonedDate(d) {
 	return dt
 }
 
-function parseFile(filename) {
+function parseFile(timeRangeStart, filename) {
 	return new Promise(function (resolve, reject) {
 		const lr = new LineByLineReader(filename)
 		const lines = []
@@ -40,24 +40,15 @@ function parseFile(filename) {
 		})
 
 		lr.on('line', function (line) {
-			// pause emitting of lines...
-			// lr.pause()
-			// 2020-05-06 07:10 +00:00
 			const parts = line.match(new RegExp(cli.argv['regex-log-datetime'] || '(\\d{1,4})-(\\d{1,2})-(\\d{1,2}) (\\d{1,2}):(\\d{1,2})'))
 			if (parts) {
 				const logDateTime = timeZonedDate(new Date(parts[0]))
-				if (cli.argv.verbose) {
-					// eslint-disable-next-line no-console
-					// console.dir({ logDateTime, logLine })
+				const ignore = logDateTime >= timeRangeStart
+				if (!ignore) {
+					lines.push({ logDateTime, logLine: line })
 				}
-				lines.push({ logDateTime, logLine: line })
+				verboseLog({ file: filename, time: logDateTime, ignore, line })
 			}
-
-			// ...do your asynchronous line processing..
-			// setTimeout(function () {
-			// ...and continue emitting lines.
-			// lr.resume()
-			// }, 100)
 		})
 
 		lr.on('end', function () {
@@ -66,34 +57,38 @@ function parseFile(filename) {
 	})
 }
 
+const verboseLog = function (message) {
+	if (cli.argv.verbose === true) {
+		// eslint-disable-next-line no-console
+		console.log(JSON.stringify(message))
+	}
+}
+
 cli.runcom(async function (rc) {
 	this.argv.notNull('pattern')
 
 	const datetimeOffset = this.argv['datetime-offset'] || 300000
-	const dt = timeZonedDate()
-	dt.setMilliseconds(dt.getMilliseconds() - datetimeOffset)
+	const timeRangeStart = timeZonedDate()
+	timeRangeStart.setMilliseconds(timeRangeStart.getMilliseconds() - datetimeOffset)
 	if (this.argv.verbose === true) {
 		// eslint-disable-next-line no-console
 		console.log(this.argv)
 		// eslint-disable-next-line no-console
-		console.log(`verify logs since "${dt.toISOString()}"`)
+		console.log(`verify logs since "${timeRangeStart.toISOString()}" timezone-offset: ${cli.argv['timezone-offset'] || 2} hours`)
 	}
 	const files = await glob(this.argv.pattern, { dot: true })
 	let logs = []
 	for (let f = 0; f < files.length; f++) {
 		const file = files[f]
 		const parts = file.match(new RegExp(this.argv['argv.regex-file-datetime'] || '(\\d{1,4})-(\\d{1,2})-(\\d{1,2})'))
-		const fileDatetime = (parts ? new Date(parts[0]) : timeZonedDate())
+		const fileDatetime = (parts ? timeZonedDate(new Date(parts[0])) : timeRangeStart)
 
-		if (this.argv.verbose === true) {
-			// eslint-disable-next-line no-console
-			console.log(file, fileDatetime.toISOString())
-		}
-
-		if (dt < fileDatetime) {
+		const ignore = fileDatetime < timeRangeStart
+		verboseLog({ file: file, time: fileDatetime.toISOString(), ignore })
+		if (!ignore) {
 			/* console.dir(file)
 			console.dir(fileDatetime) */
-			const lines = await parseFile(file)
+			const lines = await parseFile(timeRangeStart, file)
 			logs = logs.concat(lines)
 		}
 		/* console.dir('---') */
